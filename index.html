@@ -1,0 +1,152 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>AiMoha Locator - Live Connection</title>
+    
+    <link href="https://fonts.googleapis.com/css2?family=Poppins:wght@300;400;600&display=swap" rel="stylesheet">
+    <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css" />
+    <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
+
+    <script src="https://www.gstatic.com/firebasejs/9.22.0/firebase-app-compat.js"></script>
+    <script src="https://www.gstatic.com/firebasejs/9.22.0/firebase-database-compat.js"></script>
+
+    <style>
+        * { margin: 0; padding: 0; box-sizing: border-box; font-family: 'Poppins', sans-serif; }
+        body { height: 100vh; width: 100vw; overflow: hidden; background-color: #1a1a2e; }
+        #map { height: 100%; width: 100%; position: absolute; z-index: 1; }
+        .glass-panel {
+            position: absolute; bottom: 30px; left: 50%; transform: translateX(-50%); z-index: 1000;
+            background: rgba(255, 255, 255, 0.15); backdrop-filter: blur(15px); -webkit-backdrop-filter: blur(15px);
+            border: 1px solid rgba(255, 255, 255, 0.3); padding: 25px; border-radius: 20px; text-align: center; color: #fff;
+            box-shadow: 0 8px 32px 0 rgba(0, 0, 0, 0.37); width: 90%; max-width: 400px;
+        }
+        .glass-panel h1 { font-size: 24px; font-weight: 600; margin-bottom: 5px; background: linear-gradient(45deg, #00d2ff, #3a7bd5); -webkit-background-clip: text; -webkit-text-fill-color: transparent; }
+        .glass-panel p { font-size: 14px; margin-bottom: 20px; color: #e0e0e0; }
+        .btn {
+            background: linear-gradient(45deg, #3a7bd5, #00d2ff); color: white; border: none; padding: 12px 24px;
+            font-size: 16px; font-weight: 600; border-radius: 30px; cursor: pointer; transition: all 0.3s ease; width: 100%;
+        }
+        .btn:hover { transform: translateY(-2px); }
+        #session-info { margin-top: 15px; font-size: 12px; color: #b3b3b3; word-break: break-all; }
+    </style>
+</head>
+<body>
+
+    <div id="map"></div>
+
+    <div class="glass-panel">
+        <h1>AiMoha Locator</h1>
+        <p id="status">Connecting to network...</p>
+        <button id="actionBtn" class="btn" onclick="initRole()">Initialize</button>
+        <div id="session-info"></div>
+    </div>
+
+    <script>
+        
+const firebaseConfig = {
+  apiKey: "AIzaSyDNhEVbTQs_C3s5dTXXW-uPlAyQZAkxpMs",
+  authDomain: "flutter-ai-playground-75f04.firebaseapp.com",
+  projectId: "flutter-ai-playground-75f04",
+  storageBucket: "flutter-ai-playground-75f04.firebasestorage.app",
+  messagingSenderId: "1092420079459",
+  appId: "1:1092420079459:web:1b9289ecf633f52e250d56"
+};
+
+// Initialize Firebase
+const app = initializeApp(firebaseConfig);
+        
+        // بدء تشغيل Firebase
+        firebase.initializeApp(firebaseConfig);
+        const database = firebase.database();
+
+        // إعداد الخريطة المبدئية
+        let map = L.map('map').setView([0, 0], 2);
+        L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png').addTo(map);
+        let trackerMarker;
+
+        // قراءة المعالم من الرابط (هل هذا الجهاز مرسل أم مستقبل؟)
+        const urlParams = new URLSearchParams(window.location.search);
+        const trackId = urlParams.get('id') || "demo-session"; // معرف الغرفة/الشخص
+        const role = urlParams.get('role'); // إما 'sender' أو 'receiver'
+
+        const statusText = document.getElementById('status');
+        const actionBtn = document.getElementById('actionBtn');
+        const sessionInfo = document.getElementById('session-info');
+
+        // تخصيص الواجهة بناءً على الرابط عند التحميل
+        if (role === 'receiver') {
+            statusText.innerText = "Ready to track remote device";
+            actionBtn.innerText = "Start Live Tracking";
+        } else {
+            statusText.innerText = "Ready to broadcast your location";
+            actionBtn.innerText = "Broadcast My Location";
+        }
+
+        function initRole() {
+            if (role === 'receiver') {
+                startReceiving();
+            } else {
+                startBroadcasting();
+            }
+        }
+
+        // وظيفة الهاتف (المرسل): جلب الموقع وإرساله لـ Firebase
+        function startBroadcasting() {
+            if (!navigator.geolocation) {
+                statusText.innerText = "GPS not supported.";
+                return;
+            }
+
+            statusText.innerText = "Broadcasting live location...";
+            actionBtn.style.display = "none";
+            
+            // توليد رابط مخصص لإرساله للكمبيوتر البعيد
+            const receiverUrl = `${window.location.origin}${window.location.pathname}?role=receiver&id=${trackId}`;
+            sessionInfo.innerHTML = `Send this link to the remote PC:<br><a href="${receiverUrl}" target="_blank" style="color:#00d2ff">${receiverUrl}</a>`;
+
+            navigator.geolocation.watchPosition((position) => {
+                const lat = position.coords.latitude;
+                const lng = position.coords.longitude;
+
+                // تحديث الخريطة محلياً على الهاتف
+                updateMap(lat, lng, "Your Location");
+
+                // إرسال الإحداثيات فوراً إلى Firebase تحت المعرف المخصص
+                database.ref('tracking/' + trackId).set({
+                    latitude: lat,
+                    longitude: lng,
+                    timestamp: Date.now()
+                });
+            }, (err) => { statusText.innerText = "GPS Error."; }, { enableHighAccuracy: true });
+        }
+
+        // وظيفة الكمبيوتر (المستقبل): الاستماع لـ Firebase وتحديث الخريطة
+        function startReceiving() {
+            statusText.innerText = "Waiting for device signal...";
+            actionBtn.style.display = "none";
+
+            // الاستماع لأي تغيير في الإحداثيات داخل Firebase في الوقت الفعلي
+            database.ref('tracking/' + trackId).on('value', (snapshot) => {
+                const data = snapshot.val();
+                if (data) {
+                    statusText.innerText = "Device Connected (Live)";
+                    updateMap(data.latitude, data.longitude, "Target Device");
+                }
+            });
+        }
+
+        // دالة مشتركة لتحديث مكان العلامة على الخريطة
+        function updateMap(lat, lng, popupText) {
+            if (!trackerMarker) {
+                trackerMarker = L.marker([lat, lng]).addTo(map).bindPopup(`<b>${popupText}</b>`).openPopup();
+                map.setView([lat, lng], 16);
+            } else {
+                trackerMarker.setLatLng([lat, lng]);
+                map.setView([lat, lng]); 
+            }
+        }
+    </script>
+</body>
+</html>
